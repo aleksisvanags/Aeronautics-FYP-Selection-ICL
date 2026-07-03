@@ -363,6 +363,8 @@ def generate_html(projects, output_filename):
             --space-badge-border: #ddd6fe;
             --term-accent-bg: #ccfbf1; --term-accent-border: #14b8a6; --term-accent-text: #0f766e;
             --term-badge-border: #99f6e4;
+            --final-accent-bg: #dcfce7; --final-accent-border: #22c55e; --final-accent-text: #15803d;
+            --final-check: #22c55e;
             --focus-ring: rgba(2, 132, 199, 0.1);
             --card-shadow: 0 1px 3px rgba(0,0,0,0.02);
             --card-shadow-hover: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
@@ -396,6 +398,8 @@ def generate_html(projects, output_filename):
             --space-badge-border: #4c1d95;
             --term-accent-bg: #042f2e; --term-accent-border: #0f766e; --term-accent-text: #5eead4;
             --term-badge-border: #115e59;
+            --final-accent-bg: #052e16; --final-accent-border: #16a34a; --final-accent-text: #4ade80;
+            --final-check: #4ade80;
             --focus-ring: rgba(56, 189, 248, 0.2);
             --card-shadow: 0 1px 3px rgba(0,0,0,0.3);
             --card-shadow-hover: 0 10px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.3);
@@ -429,7 +433,7 @@ def generate_html(projects, output_filename):
         .main-content {{ flex: 1; display: flex; flex-direction: column; height: 100%; overflow: hidden; }}
         .top-bar {{ padding: 16px 32px; background: var(--card-bg); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }}
         .results-count {{ font-weight: 600; font-size: 1.05rem; color: var(--heading); }}
-        .filter-toggles {{ display: flex; gap: 12px; }}
+        .filter-toggles {{ display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }}
         .toggle-btn {{ background: var(--card-bg); border: 1px solid var(--border); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 600; display: flex; align-items: center; gap: 6px; transition: all 0.15s; color: var(--text-soft); }}
         .toggle-btn:hover {{ border-color: var(--border-strong); background: var(--bg); }}
         .toggle-btn.active {{ background: var(--star-accent-bg); border-color: var(--star-accent-border); color: var(--star-accent-text); }}
@@ -454,6 +458,13 @@ def generate_html(projects, output_filename):
         .space-badge {{ font-size: 0.8rem; font-weight: 700; color: var(--space-accent-text); background: var(--space-accent-bg); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--space-badge-border); }}
         .toggle-btn.active-terms {{ background: var(--term-accent-bg); border-color: var(--term-accent-border); color: var(--term-accent-text); }}
         .term-badge {{ font-size: 0.8rem; font-weight: 700; color: var(--term-accent-text); background: var(--term-accent-bg); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--term-badge-border); }}
+        .toggle-btn.active-final {{ background: var(--final-accent-bg); border-color: var(--final-accent-border); color: var(--final-accent-text); }}
+        .fab-text {{ position: fixed; bottom: 24px; right: 24px; z-index: 50; background: var(--card-bg); color: var(--text-soft); border: 1px solid var(--border); border-radius: 999px; padding: 12px 20px; font-size: 0.88rem; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.18); transition: all 0.15s; }}
+        .fab-text:hover {{ border-color: var(--border-strong); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.25); }}
+        .btn-final {{ background: none; border: none; font-size: 1.3rem; cursor: pointer; color: var(--icon-idle); transition: all 0.15s; line-height: 1; font-weight: 700; }}
+        .btn-final:hover {{ transform: scale(1.2); color: var(--final-check); }}
+        .btn-final.infinal {{ color: var(--final-check); }}
+        .btn-final.infinal:hover {{ color: var(--danger); }}
 
         .card h3 {{ font-size: 1.15rem; margin-bottom: 8px; line-height: 1.4; font-weight: 700; color: var(--text); }}
         .supervisor {{ font-size: 0.9rem; color: var(--text-light); margin-bottom: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; }}
@@ -508,31 +519,41 @@ def generate_html(projects, output_filename):
             <div class="results-count" id="resultsCount">Loading projects...</div>
             <div class="filter-toggles">
                 <button class="toggle-btn" id="btnShortlist" onclick="toggleShortlistFilter()">
-                    ★ Show Shortlist Only (<span id="shortlistCount">0</span>)
+                    ★ Shortlist (<span id="shortlistCount">0</span>)
+                </button>
+                <button class="toggle-btn" id="btnFinal" onclick="toggleFinalFilter()" title="Projects promoted from the shortlist with ✓">
+                    ✓ Final List (<span id="finalCount">0</span>)
                 </button>
                 <button class="toggle-btn" id="btnHidden" onclick="toggleHiddenFilter()">
-                    ✕ Show Hidden Only (<span id="hiddenCount">0</span>)
+                    ✕ Hidden (<span id="hiddenCount">0</span>)
                 </button>
                 <button class="toggle-btn" id="btnSpace" onclick="toggleSpaceFilter()" title="Students on the spacecraft course can only pick (S) projects">
-                    🚀 Space (S) Only (<span id="spaceCount">0</span>)
+                    🚀 Space (S) (<span id="spaceCount">0</span>)
                 </button>
                 <button class="toggle-btn" id="btnTerms" onclick="toggleTermsFilter()" title="Projects marked * in the PDF: student effort must be evenly distributed between the autumn and spring/summer terms">
-                    ✱ Both Terms Only (<span id="termsCount">0</span>)
+                    ✱ Equal Effort (<span id="termsCount">0</span>)
                 </button>
             </div>
         </div>
         <div class="projects-grid" id="projectsGrid"></div>
     </main>
 
+    <button class="fab-text" id="btnText" onclick="toggleAllText()" title="Expand or shrink the description text on all tiles">
+        ⤢ Expand Text
+    </button>
+
     <script>
         const projectsData = {json.dumps(projects)};
         let starredIds = new Set(JSON.parse(localStorage.getItem('starredProjects') || '[]'));
         let hiddenIds = new Set(JSON.parse(localStorage.getItem('hiddenProjects') || '[]'));
+        let finalIds = new Set(JSON.parse(localStorage.getItem('finalProjects') || '[]'));
         let showShortlistOnly = false;
         let showHiddenOnly = false;
+        let showFinalOnly = false;
         let showSpaceOnly = false;
         let showTermsOnly = false;
         let expandedIds = new Set();
+        let allTextExpanded = false;
 
         // Pseudo-option so projects without any detected skills can still be
         // narrowed down via the Skills section instead of always showing.
@@ -556,6 +577,7 @@ def generate_html(projects, output_filename):
             restoreState();
             updateShortlistUI();
             updateHiddenUI();
+            updateFinalUI();
             document.getElementById('spaceCount').innerText = projectsData.filter(p => p.space).length;
             document.getElementById('termsCount').innerText = projectsData.filter(p => p.bothTerms).length;
             renderProjects();
@@ -573,7 +595,7 @@ def generate_html(projects, output_filename):
                     supervisors: [...excluded.supervisors]
                 }},
                 search: document.getElementById('searchInput').value,
-                showShortlistOnly, showHiddenOnly, showSpaceOnly, showTermsOnly
+                showShortlistOnly, showHiddenOnly, showFinalOnly, showSpaceOnly, showTermsOnly
             }}));
         }}
 
@@ -597,10 +619,12 @@ def generate_html(projects, output_filename):
             document.getElementById('searchInput').value = saved.search || '';
             showShortlistOnly = !!saved.showShortlistOnly;
             showHiddenOnly = !!saved.showHiddenOnly;
+            showFinalOnly = !!saved.showFinalOnly;
             showSpaceOnly = !!saved.showSpaceOnly;
             showTermsOnly = !!saved.showTermsOnly;
             if (showShortlistOnly) document.getElementById('btnShortlist').classList.add('active');
             if (showHiddenOnly) document.getElementById('btnHidden').classList.add('active-hidden');
+            if (showFinalOnly) document.getElementById('btnFinal').classList.add('active-final');
             if (showSpaceOnly) document.getElementById('btnSpace').classList.add('active-space');
             if (showTermsOnly) document.getElementById('btnTerms').classList.add('active-terms');
             updateActiveCount();
@@ -727,10 +751,7 @@ def generate_html(projects, output_filename):
             excluded.supervisors.clear();
             document.querySelectorAll('.sidebar input[type="checkbox"]').forEach(cb => cb.checked = true);
             document.getElementById('searchInput').value = '';
-            showShortlistOnly = false;
-            document.getElementById('btnShortlist').classList.remove('active');
-            showHiddenOnly = false;
-            document.getElementById('btnHidden').classList.remove('active-hidden');
+            clearViews();
             showSpaceOnly = false;
             document.getElementById('btnSpace').classList.remove('active-space');
             showTermsOnly = false;
@@ -739,25 +760,37 @@ def generate_html(projects, output_filename):
             renderProjects();
         }}
 
+        // The three views (shortlist / final / hidden) are mutually exclusive
+        function clearViews() {{
+            showShortlistOnly = false;
+            document.getElementById('btnShortlist').classList.remove('active');
+            showFinalOnly = false;
+            document.getElementById('btnFinal').classList.remove('active-final');
+            showHiddenOnly = false;
+            document.getElementById('btnHidden').classList.remove('active-hidden');
+        }}
+
         function toggleShortlistFilter() {{
-            showShortlistOnly = !showShortlistOnly;
-            if (showShortlistOnly && showHiddenOnly) {{
-                showHiddenOnly = false;
-                document.getElementById('btnHidden').classList.remove('active-hidden');
-            }}
-            const btn = document.getElementById('btnShortlist');
-            showShortlistOnly ? btn.classList.add('active') : btn.classList.remove('active');
+            const turnOn = !showShortlistOnly;
+            clearViews();
+            showShortlistOnly = turnOn;
+            if (turnOn) document.getElementById('btnShortlist').classList.add('active');
+            renderProjects();
+        }}
+
+        function toggleFinalFilter() {{
+            const turnOn = !showFinalOnly;
+            clearViews();
+            showFinalOnly = turnOn;
+            if (turnOn) document.getElementById('btnFinal').classList.add('active-final');
             renderProjects();
         }}
 
         function toggleHiddenFilter() {{
-            showHiddenOnly = !showHiddenOnly;
-            if (showHiddenOnly && showShortlistOnly) {{
-                showShortlistOnly = false;
-                document.getElementById('btnShortlist').classList.remove('active');
-            }}
-            const btn = document.getElementById('btnHidden');
-            showHiddenOnly ? btn.classList.add('active-hidden') : btn.classList.remove('active-hidden');
+            const turnOn = !showHiddenOnly;
+            clearViews();
+            showHiddenOnly = turnOn;
+            if (turnOn) document.getElementById('btnHidden').classList.add('active-hidden');
             renderProjects();
         }}
 
@@ -789,16 +822,38 @@ def generate_html(projects, output_filename):
             renderProjects();
         }}
 
+        // Moves a shortlisted project to the final list; clicking again on a
+        // final-list card sends it back to the shortlist
+        function toggleFinal(id) {{
+            if (finalIds.has(id)) {{
+                finalIds.delete(id);
+                starredIds.add(id);
+            }} else {{
+                finalIds.add(id);
+                starredIds.delete(id);
+            }}
+            localStorage.setItem('finalProjects', JSON.stringify(Array.from(finalIds)));
+            localStorage.setItem('starredProjects', JSON.stringify(Array.from(starredIds)));
+            updateShortlistUI();
+            updateFinalUI();
+            renderProjects();
+        }}
+
         function toggleHide(id) {{
             if (hiddenIds.has(id)) {{
                 hiddenIds.delete(id);
             }} else {{
                 hiddenIds.add(id);
-                // A hidden project shouldn't linger on the shortlist
+                // A hidden project shouldn't linger on the shortlist or final list
                 if (starredIds.has(id)) {{
                     starredIds.delete(id);
                     localStorage.setItem('starredProjects', JSON.stringify(Array.from(starredIds)));
                     updateShortlistUI();
+                }}
+                if (finalIds.has(id)) {{
+                    finalIds.delete(id);
+                    localStorage.setItem('finalProjects', JSON.stringify(Array.from(finalIds)));
+                    updateFinalUI();
                 }}
             }}
             localStorage.setItem('hiddenProjects', JSON.stringify(Array.from(hiddenIds)));
@@ -812,6 +867,18 @@ def generate_html(projects, output_filename):
 
         function updateHiddenUI() {{
             document.getElementById('hiddenCount').innerText = hiddenIds.size;
+        }}
+
+        function updateFinalUI() {{
+            document.getElementById('finalCount').innerText = finalIds.size;
+        }}
+
+        // Expand or shrink the description text on every tile at once
+        function toggleAllText() {{
+            allTextExpanded = !allTextExpanded;
+            expandedIds = allTextExpanded ? new Set(projectsData.map(p => p.id)) : new Set();
+            document.getElementById('btnText').innerText = allTextExpanded ? '⤡ Shrink Text' : '⤢ Expand Text';
+            renderProjects();
         }}
 
         function toggleDescription(btn, id) {{
@@ -832,14 +899,16 @@ def generate_html(projects, output_filename):
             grid.innerHTML = '';
 
             const filtered = projectsData.filter(p => {{
-                // The default view shows only undecided projects: starred ones
-                // live in the shortlist view, hidden ones in the hidden view.
+                // The default view shows only undecided projects: starred,
+                // final and hidden ones each live in their own view.
                 if (showHiddenOnly) {{
                     if (!hiddenIds.has(p.id)) return false;
                 }} else if (showShortlistOnly) {{
                     if (!starredIds.has(p.id)) return false;
+                }} else if (showFinalOnly) {{
+                    if (!finalIds.has(p.id)) return false;
                 }} else {{
-                    if (hiddenIds.has(p.id) || starredIds.has(p.id)) return false;
+                    if (hiddenIds.has(p.id) || starredIds.has(p.id) || finalIds.has(p.id)) return false;
                 }}
 
                 if (showSpaceOnly && !p.space) return false;
@@ -874,6 +943,7 @@ def generate_html(projects, output_filename):
             filtered.forEach(p => {{
                 const isStarred = starredIds.has(p.id);
                 const isHidden = hiddenIds.has(p.id);
+                const isFinal = finalIds.has(p.id);
                 const card = document.createElement('div');
                 card.className = 'card';
 
@@ -886,6 +956,14 @@ def generate_html(projects, output_filename):
                 const hideBtn = isHidden
                     ? `<button class="btn-hide restore" onclick="toggleHide('${{p.id}}')" title="Restore project">↩</button>`
                     : `<button class="btn-hide" onclick="toggleHide('${{p.id}}')" title="Hide project">✕</button>`;
+                // Shortlisted cards get a promote button; final-list cards a demote one
+                const promoteBtn = `<button class="btn-final" onclick="toggleFinal('${{p.id}}')" title="Send to final list">✓</button>`;
+                const demoteBtn = `<button class="btn-final infinal" onclick="toggleFinal('${{p.id}}')" title="Remove from final list (back to shortlist)">✓</button>`;
+                let actions;
+                if (isHidden) actions = hideBtn;
+                else if (isFinal) actions = demoteBtn;
+                else if (isStarred) actions = promoteBtn + starBtn + hideBtn;
+                else actions = starBtn + hideBtn;
 
                 card.innerHTML = `
                     <div>
@@ -893,9 +971,9 @@ def generate_html(projects, output_filename):
                             <span style="display:flex; gap:6px; align-items:center;">
                                 <span class="proj-id">#${{p.id}}</span>
                                 ${{p.space ? '<span class="space-badge" title="Space-related project — pickable by the spacecraft course">🚀 S</span>' : ''}}
-                                ${{p.bothTerms ? '<span class="term-badge" title="Marked * in the PDF: effort must be evenly distributed between the autumn and spring/summer terms">✱ Both terms</span>' : ''}}
+                                ${{p.bothTerms ? '<span class="term-badge" title="Marked * in the PDF: effort must be evenly distributed between the autumn and spring/summer terms">✱ Equal effort</span>' : ''}}
                             </span>
-                            <div class="card-actions">${{isHidden ? '' : starBtn}}${{hideBtn}}</div>
+                            <div class="card-actions">${{actions}}</div>
                         </div>
                         <h3>${{p.title}}</h3>
                         <div class="supervisor">👤 ${{p.supervisor}}</div>
