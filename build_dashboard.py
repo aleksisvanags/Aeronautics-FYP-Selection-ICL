@@ -843,7 +843,9 @@ def generate_html(projects, output_filename):
                     supervisors: [...excluded.supervisors]
                 }},
                 search: document.getElementById('searchInput').value,
-                showShortlistOnly, showHiddenOnly, showFinalOnly, showSpaceOnly, showTermsOnly
+                // The Space and Equal Effort toggles deliberately reset to
+                // OFF on every load, so they are not saved here.
+                showShortlistOnly, showHiddenOnly, showFinalOnly
             }}));
         }}
 
@@ -868,13 +870,9 @@ def generate_html(projects, output_filename):
             showShortlistOnly = !!saved.showShortlistOnly;
             showHiddenOnly = !!saved.showHiddenOnly;
             showFinalOnly = !!saved.showFinalOnly;
-            showSpaceOnly = !!saved.showSpaceOnly;
-            showTermsOnly = !!saved.showTermsOnly;
             if (showShortlistOnly) document.getElementById('btnShortlist').classList.add('active');
             if (showHiddenOnly) document.getElementById('btnHidden').classList.add('active-hidden');
             if (showFinalOnly) document.getElementById('btnFinal').classList.add('active-final');
-            if (showSpaceOnly) document.getElementById('btnSpace').classList.add('active-space');
-            if (showTermsOnly) document.getElementById('btnTerms').classList.add('active-terms');
             updateActiveCount();
         }}
 
