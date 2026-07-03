@@ -206,9 +206,11 @@ def extract_projects_from_pdf(pdf_path):
     for block in raw_blocks[1:]:
         block_cleaned = clean_text(block)
 
-        # 1. Project Number / ID
+        # 1. Project Number / ID. A "*" after the code marks projects whose
+        # effort must be split evenly across autumn and spring/summer terms.
         proj_no_match = re.match(r"^([A-Z0-9]+)", block_cleaned)
         proj_no = proj_no_match.group(1) if proj_no_match else "UNKNOWN"
+        both_terms = bool(re.match(r"^[A-Z0-9]+\s*\*", block_cleaned))
 
         # 2. Project Title ("- 1 project available", or "- project available"
         # when the count is missing). The dash before the count is sometimes
@@ -309,6 +311,7 @@ def extract_projects_from_pdf(pdf_path):
                 "title": title,
                 "supervisor": supervisor,
                 "space": is_space,
+                "bothTerms": both_terms,
                 "categories": sorted(list(set(categories))),
                 "skills": sorted(list(found_skills)),
                 "description": description,
@@ -358,6 +361,8 @@ def generate_html(projects, output_filename):
             --hide-accent-bg: #fee2e2; --hide-accent-border: #ef4444; --hide-accent-text: #b91c1c;
             --space-accent-bg: #ede9fe; --space-accent-border: #8b5cf6; --space-accent-text: #6d28d9;
             --space-badge-border: #ddd6fe;
+            --term-accent-bg: #ccfbf1; --term-accent-border: #14b8a6; --term-accent-text: #0f766e;
+            --term-badge-border: #99f6e4;
             --focus-ring: rgba(2, 132, 199, 0.1);
             --card-shadow: 0 1px 3px rgba(0,0,0,0.02);
             --card-shadow-hover: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
@@ -389,6 +394,8 @@ def generate_html(projects, output_filename):
             --hide-accent-bg: #450a0a; --hide-accent-border: #b91c1c; --hide-accent-text: #f87171;
             --space-accent-bg: #2e1065; --space-accent-border: #7c3aed; --space-accent-text: #c4b5fd;
             --space-badge-border: #4c1d95;
+            --term-accent-bg: #042f2e; --term-accent-border: #0f766e; --term-accent-text: #5eead4;
+            --term-badge-border: #115e59;
             --focus-ring: rgba(56, 189, 248, 0.2);
             --card-shadow: 0 1px 3px rgba(0,0,0,0.3);
             --card-shadow-hover: 0 10px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.3);
@@ -445,6 +452,8 @@ def generate_html(projects, output_filename):
         .toggle-btn.active-hidden {{ background: var(--hide-accent-bg); border-color: var(--hide-accent-border); color: var(--hide-accent-text); }}
         .toggle-btn.active-space {{ background: var(--space-accent-bg); border-color: var(--space-accent-border); color: var(--space-accent-text); }}
         .space-badge {{ font-size: 0.8rem; font-weight: 700; color: var(--space-accent-text); background: var(--space-accent-bg); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--space-badge-border); }}
+        .toggle-btn.active-terms {{ background: var(--term-accent-bg); border-color: var(--term-accent-border); color: var(--term-accent-text); }}
+        .term-badge {{ font-size: 0.8rem; font-weight: 700; color: var(--term-accent-text); background: var(--term-accent-bg); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--term-badge-border); }}
 
         .card h3 {{ font-size: 1.15rem; margin-bottom: 8px; line-height: 1.4; font-weight: 700; color: var(--text); }}
         .supervisor {{ font-size: 0.9rem; color: var(--text-light); margin-bottom: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; }}
@@ -507,6 +516,9 @@ def generate_html(projects, output_filename):
                 <button class="toggle-btn" id="btnSpace" onclick="toggleSpaceFilter()" title="Students on the spacecraft course can only pick (S) projects">
                     🚀 Space (S) Only (<span id="spaceCount">0</span>)
                 </button>
+                <button class="toggle-btn" id="btnTerms" onclick="toggleTermsFilter()" title="Projects marked * in the PDF: student effort must be evenly distributed between the autumn and spring/summer terms">
+                    ✱ Both Terms Only (<span id="termsCount">0</span>)
+                </button>
             </div>
         </div>
         <div class="projects-grid" id="projectsGrid"></div>
@@ -519,6 +531,7 @@ def generate_html(projects, output_filename):
         let showShortlistOnly = false;
         let showHiddenOnly = false;
         let showSpaceOnly = false;
+        let showTermsOnly = false;
         let expandedIds = new Set();
 
         // Pseudo-option so projects without any detected skills can still be
@@ -540,11 +553,57 @@ def generate_html(projects, output_filename):
         function init() {{
             syncThemeButton();
             buildSidebar();
+            restoreState();
             updateShortlistUI();
             updateHiddenUI();
             document.getElementById('spaceCount').innerText = projectsData.filter(p => p.space).length;
+            document.getElementById('termsCount').innerText = projectsData.filter(p => p.bothTerms).length;
             renderProjects();
             document.getElementById('searchInput').addEventListener('input', renderProjects);
+        }}
+
+        // ---- Filter/search/toggle persistence across reloads ----
+        const STATE_KEY = 'dashboardFilters';
+
+        function saveState() {{
+            localStorage.setItem(STATE_KEY, JSON.stringify({{
+                excluded: {{
+                    categories: [...excluded.categories],
+                    skills: [...excluded.skills],
+                    supervisors: [...excluded.supervisors]
+                }},
+                search: document.getElementById('searchInput').value,
+                showShortlistOnly, showHiddenOnly, showSpaceOnly, showTermsOnly
+            }}));
+        }}
+
+        function restoreState() {{
+            let saved = null;
+            try {{ saved = JSON.parse(localStorage.getItem(STATE_KEY)); }} catch (e) {{}}
+            if (!saved) return;
+
+            // Re-apply unchecked options via the checkboxes that actually
+            // exist, so stale values (e.g. after the PDF is re-parsed with
+            // different tags) are dropped silently.
+            const savedEx = saved.excluded || {{}};
+            document.querySelectorAll('input[data-group]').forEach(cb => {{
+                const group = cb.dataset.group;
+                if ((savedEx[group] || []).includes(cb.value)) {{
+                    cb.checked = false;
+                    excluded[group].add(cb.value);
+                }}
+            }});
+
+            document.getElementById('searchInput').value = saved.search || '';
+            showShortlistOnly = !!saved.showShortlistOnly;
+            showHiddenOnly = !!saved.showHiddenOnly;
+            showSpaceOnly = !!saved.showSpaceOnly;
+            showTermsOnly = !!saved.showTermsOnly;
+            if (showShortlistOnly) document.getElementById('btnShortlist').classList.add('active');
+            if (showHiddenOnly) document.getElementById('btnHidden').classList.add('active-hidden');
+            if (showSpaceOnly) document.getElementById('btnSpace').classList.add('active-space');
+            if (showTermsOnly) document.getElementById('btnTerms').classList.add('active-terms');
+            updateActiveCount();
         }}
 
         function syncThemeButton() {{
@@ -674,6 +733,8 @@ def generate_html(projects, output_filename):
             document.getElementById('btnHidden').classList.remove('active-hidden');
             showSpaceOnly = false;
             document.getElementById('btnSpace').classList.remove('active-space');
+            showTermsOnly = false;
+            document.getElementById('btnTerms').classList.remove('active-terms');
             updateActiveCount();
             renderProjects();
         }}
@@ -697,6 +758,14 @@ def generate_html(projects, output_filename):
             }}
             const btn = document.getElementById('btnHidden');
             showHiddenOnly ? btn.classList.add('active-hidden') : btn.classList.remove('active-hidden');
+            renderProjects();
+        }}
+
+        function toggleTermsFilter() {{
+            // Constraint like the space toggle — combines with everything else
+            showTermsOnly = !showTermsOnly;
+            const btn = document.getElementById('btnTerms');
+            showTermsOnly ? btn.classList.add('active-terms') : btn.classList.remove('active-terms');
             renderProjects();
         }}
 
@@ -774,6 +843,7 @@ def generate_html(projects, output_filename):
                 }}
 
                 if (showSpaceOnly && !p.space) return false;
+                if (showTermsOnly && !p.bothTerms) return false;
 
                 if (searchQuery) {{
                     const matchText = `${{p.id}} ${{p.title}} ${{p.supervisor}} ${{p.description}} ${{p.skills.join(' ')}} ${{p.categories.join(' ')}}`.toLowerCase();
@@ -791,14 +861,7 @@ def generate_html(projects, output_filename):
 
             updateBadges(filtered);
 
-            let countText = `Showing ${{filtered.length}} of ${{projectsData.length}} projects`;
-            if (!showHiddenOnly && !showShortlistOnly) {{
-                const parts = [];
-                if (starredIds.size > 0) parts.push(`${{starredIds.size}} shortlisted ★`);
-                if (hiddenIds.size > 0) parts.push(`${{hiddenIds.size}} hidden ✕`);
-                if (parts.length > 0) countText += ` (${{parts.join(', ')}})`;
-            }}
-            document.getElementById('resultsCount').innerText = countText;
+            document.getElementById('resultsCount').innerText = `Showing ${{filtered.length}} of ${{projectsData.length}} projects`;
 
             if (filtered.length === 0) {{
                 grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 60px 20px; color: var(--text-light); background: var(--card-bg); border-radius: 12px; border: 1px dashed var(--border);">
@@ -830,6 +893,7 @@ def generate_html(projects, output_filename):
                             <span style="display:flex; gap:6px; align-items:center;">
                                 <span class="proj-id">#${{p.id}}</span>
                                 ${{p.space ? '<span class="space-badge" title="Space-related project — pickable by the spacecraft course">🚀 S</span>' : ''}}
+                                ${{p.bothTerms ? '<span class="term-badge" title="Marked * in the PDF: effort must be evenly distributed between the autumn and spring/summer terms">✱ Both terms</span>' : ''}}
                             </span>
                             <div class="card-actions">${{isHidden ? '' : starBtn}}${{hideBtn}}</div>
                         </div>
@@ -848,6 +912,10 @@ def generate_html(projects, output_filename):
             // Keep the user's place instead of jumping back to the top
             // whenever a star/hide/filter change re-renders the grid
             grid.scrollTop = prevScroll;
+
+            // Every state change goes through a re-render, so persisting
+            // here covers filters, search, and the view toggles in one place
+            saveState();
         }}
 
         window.onload = init;
