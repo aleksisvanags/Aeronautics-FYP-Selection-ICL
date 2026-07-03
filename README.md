@@ -1,3 +1,5 @@
+This script was essentially written fully by AI. Please refer back to Handbook and Project List documents to ensure all information is accurate and included during your selection.
+
 To use this script:
 
 FYP 2026/27:
@@ -5,5 +7,6 @@ FYP 2026/27:
 
 FYP Other Years:
   1. Download the FYP Project List .pdf file that which is relevant to your year.
-  2. Run 'build_dashboard.py' in the same folder as the FYP Project List .pdf file.
-  3. Open 'projects_dashboard.html'
+  2. Install the 'pypdf' module. [pip install pypdf]
+  3. Run 'build_dashboard.py' in the same folder as the FYP Project List .pdf file.
+  4. Open 'projects_dashboard.html'
