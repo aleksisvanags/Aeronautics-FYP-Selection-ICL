@@ -164,6 +164,229 @@ _SKILL_MATCHERS = [
 CATEGORY_NOISE = {"none", "no", "n/a", "tbd", "to be decided", "-"}
 
 
+_URL_WRAP = re.compile(r"((?:https?://|www\.)\S+)[ \t]*\n[ \t]*(\S+)")
+
+
+def _fix_wrapped_urls(text):
+    """Re-join long URLs that the PDF wraps across line breaks."""
+
+    def repl(m):
+        url, nxt = m.group(1), m.group(2)
+        if (
+            # query/escape characters only ever appear inside URLs
+            re.search(r"[%&=?~#]", nxt)
+            or "/" in nxt
+            or url.endswith(("/", "=", "&", "?", "%", "-"))
+            # a split file extension, e.g. "...Functions.p" + "df"
+            or (
+                re.search(r"\.[A-Za-z]{1,2}$", url)
+                and re.fullmatch(r"[A-Za-z]{1,3}[).,;]*", nxt)
+            )
+        ):
+            return url + nxt
+        return m.group(0)
+
+    prev = None
+    while prev != text:
+        prev = text
+        text = _URL_WRAP.sub(repl, text)
+    return text
+
+
+# Spelling mistakes found in the PDF, fixed for display. Matched
+# case-insensitively; the replacement keeps the original first-letter case.
+TYPO_FIXES = [
+    (r"\bPhython\b", "python"),
+    (r"\banncounced\b", "announced"),
+    (r"\bacounts\b", "accounts"),
+    (r"\baircarft\b", "aircraft"),
+    (r"\bAircrafts\b", "aircraft"),
+    (r"\balgorightms\b", "algorithms"),
+    (r"\bappication\b", "application"),
+    (r"\bappraoch\b", "approach"),
+    (r"\bartierlal\b", "arterial"),
+    (r"\bavailabile\b", "available"),
+    (r"\bcapabale\b", "capable"),
+    (r"\bin concertation\b", "in concert"),
+    (r"\bcontrolability\b", "controllability"),
+    (r"\bdynicam\b", "dynamical"),
+    (r"\beaxample\b", "example"),
+    (r"\beffoiciency\b", "efficiency"),
+    (r"\bforecastic\b", "forecasting"),
+    (r"\bheterogenous\b", "heterogeneous"),
+    (r"\bhydbrid\b", "hybrid"),
+    (r"\bindepedently\b", "independently"),
+    (r"\bknolwedge\b", "knowledge"),
+    (r"\blightweigth\b", "lightweight"),
+    (r"\bmagesium\b", "magnesium"),
+    (r"\bmetamateriald\b", "metamaterials"),
+    (r"\bmetereology\b", "meteorology"),
+    (r"\bmethodolgy\b", "methodology"),
+    (r"\boccurence\b", "occurrence"),
+    (r"\bperfomance\b", "performance"),
+    (r"\bprotoype\b", "prototype"),
+    (r"\bsiginficant\b", "significant"),
+    (r"\bsuppresion\b", "suppression"),
+    (r"\bsupresion\b", "suppression"),
+    (r"\bsytems\b", "systems"),
+    (r"\bthermalplastic\b", "thermoplastic"),
+    (r"\bthourough\b", "thorough"),
+    (r"\btokomak\b", "tokamak"),
+    (r"\btraditonal\b", "traditional"),
+    (r"\bundertstanding\b", "understanding"),
+    (r"\bvectoized\b", "vectorized"),
+    (r"\bdeployement\b", "deployment"),
+    (r"\bAerodynamic of\b", "aerodynamics of"),
+]
+_TYPO_PATTERNS = [
+    (re.compile(pat, re.IGNORECASE), rep) for pat, rep in TYPO_FIXES
+]
+
+
+def fix_typos(text):
+    for pat, rep in _TYPO_PATTERNS:
+        text = pat.sub(
+            lambda m, rep=rep: (rep[0].upper() + rep[1:])
+            if m.group(0)[0].isupper()
+            else rep,
+            text,
+        )
+    return text
+
+
+# Words kept lowercase in Title Case (unless first/last or after a colon)
+SMALL_WORDS = {
+    "a", "an", "the", "and", "but", "or", "nor", "so", "yet",
+    "as", "at", "by", "for", "from", "in", "into", "of", "off", "on",
+    "onto", "out", "over", "per", "to", "up", "under", "via", "vs",
+    "with", "within", "without", "versus", "between", "through",
+    "during", "against", "across", "near", "towards", "toward",
+    "after", "before",
+}
+
+
+def title_case(title):
+    """Consistent Title Case: capitalize lowercase words except small ones.
+    Works per hyphen/slash segment so "AI-driven" -> "AI-Driven" and
+    "Learning/quantum" -> "Learning/Quantum"; segments with existing
+    capitals (acronyms, eVTOL, CRM-HL, Nektar++) are left untouched."""
+    words = title.split(" ")
+    out = []
+    force_cap = True
+    for i, w in enumerate(words):
+        if w:
+            is_first = force_cap
+            is_last = i == len(words) - 1
+            parts = re.split(r"([-/])", w)
+            for j in range(0, len(parts), 2):
+                seg = parts[j]
+                m = re.search(r"[A-Za-zÀ-ž]", seg or "")
+                if not m or not seg[m.start():].islower():
+                    continue
+                core = seg[m.start():].rstrip("()[]\"'“”‘’.,:;!?")
+                if (is_first and j == 0) or is_last or core not in SMALL_WORDS:
+                    k = m.start()
+                    parts[j] = seg[:k] + seg[k].upper() + seg[k + 1:]
+            w = "".join(parts)
+            force_cap = w.endswith((":", "?", "!", "—", "–"))
+        out.append(w)
+    return " ".join(out)
+
+
+def structure_description(raw):
+    """Clean description text while preserving paragraphs and lists.
+
+    The PDF gives one line per printed line, so paragraph ends have to be
+    inferred: a blank line, or a clearly short line ending in punctuation.
+    Bullet lines (•) and numbered/reference lines start their own items.
+    Paragraphs are joined with "\\n"; bullet items keep a leading "• ".
+    """
+    raw = re.sub(r"--- PAGE \d+ ---", "\n", raw)
+    raw = re.sub(r"IMPERIAL\s+Department of Aeronautics", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"UG Final Year Internal Project List", "", raw, flags=re.IGNORECASE)
+    lines = [l.strip() for l in raw.split("\n")]
+    maxlen = max((len(l) for l in lines), default=0)
+    short = max(55, int(maxlen * 0.8))
+
+    blocks = []
+    buf = ""
+
+    def flush():
+        nonlocal buf
+        t = re.sub(r"\s+", " ", buf).strip()
+        if t:
+            blocks.append(t)
+        buf = ""
+
+    item_start = re.compile(r"(?:\(?\d{1,2}[).]|[ivx]{1,4}\)|\[\d+\])\s+\S")
+    # Trailing dots that do NOT end a sentence: abbreviations and initials
+    abbrev_end = re.compile(
+        r"(?:(?i:\b(?:e\.g|i\.e|etc|et\s+al|cf|vs|fig|eq|approx|ca|no|Dr|Prof|Mr|Ms|St))"
+        r"|(?<![A-Za-z])[A-Z])\.$"
+    )
+    def sentence_done():
+        # Does the accumulated paragraph end with a real sentence ending?
+        return bool(
+            re.search(r"[.!?][\"”’)\]]*$", buf) and not abbrev_end.search(buf)
+        )
+
+    for idx, l in enumerate(lines):
+        if not l:
+            # Blank lines (often just page breaks) only close the paragraph
+            # when a sentence actually ended and a new one starts next —
+            # otherwise the sentence continues on the following page. List
+            # items count as complete even without terminal punctuation.
+            if buf and (
+                sentence_done() or buf.startswith("• ") or item_start.match(buf)
+            ):
+                nxt = next((x for x in lines[idx + 1:] if x), "")
+                if not nxt or nxt[0].isupper() or re.match(r"[•▪◦\[(\"“]", nxt) or item_start.match(nxt):
+                    flush()
+            continue
+        bullet = re.match(r"[•▪◦]\s*(.*)$", l)
+        if bullet:
+            flush()
+            buf = "• " + bullet.group(1)
+        elif item_start.match(l) and re.search(r"[.;:!?]\s*$", buf or "."):
+            flush()
+            buf = l
+        else:
+            buf = f"{buf} {l}".strip()
+        # A short line ending a sentence closes the paragraph — but only if
+        # the next line starts like a new sentence or list item, so that a
+        # paragraph can never begin mid-sentence.
+        if (
+            len(l) < short
+            and re.search(r"[.!?][\"”’)\]]*$", l)
+            and not abbrev_end.search(l)
+        ):
+            nxt = next((x for x in lines[idx + 1:] if x), "")
+            if (
+                not nxt
+                or nxt[0].isupper()
+                or re.match(r"[•▪◦\[(\"“]", nxt)
+                or item_start.match(nxt)
+            ):
+                flush()
+    flush()
+
+    # Break inline numbered lists ("... 1) first 2) second ...") into items
+    expanded = []
+    for b in blocks:
+        if not b.startswith("• ") and (
+            (re.search(r"(?<![\w(])1\)\s", b) and re.search(r"(?<![\w(])2\)\s", b))
+            or len(re.findall(r"\s[ivx]{2,4}\)\s", b)) >= 2
+        ):
+            expanded.extend(
+                p.strip()
+                for p in re.split(r"\s(?=(?:\d{1,2}|[ivx]{1,4})\)\s)", b)
+                if p.strip()
+            )
+        else:
+            expanded.append(b)
+    return "\n".join(expanded)
+
+
 def clean_text(text):
     """Removes page breaks, headers, and multiple whitespaces."""
     if not text:
@@ -195,6 +418,7 @@ def extract_projects_from_pdf(pdf_path):
             text = re.sub(r"^\s*(?:\d{1,3}|[ivxl]{1,6})(?=\s)", "", text)
             # Re-join words hyphenated across a line break ("Co-\nsupervisor").
             text = re.sub(r"(?<=\w)-[ \t]*\n[ \t]*(?=\w)", "-", text)
+            text = _fix_wrapped_urls(text)
             full_text += f"\n--- PAGE {i+1} ---\n" + text
 
     # Split text into project blocks by looking for "Project no:"
@@ -247,6 +471,8 @@ def extract_projects_from_pdf(pdf_path):
             supervisor = clean_text(sup_raw).rstrip(" ,;-")
             # Safety net against stray page numbers
             supervisor = re.sub(r"\s+\d+$", "", supervisor)
+            # The PDF mixes "Prof." and "Dr" — normalise to dotless titles
+            supervisor = re.sub(r"\s+(Prof|Dr)\.?$", r" \1", supervisor)
 
         # 4. Categories
         cat_match = re.search(
@@ -278,21 +504,34 @@ def extract_projects_from_pdf(pdf_path):
         )
         software_raw = clean_text(soft_match.group(1)) if soft_match else ""
 
-        # 6. Description
+        # 6. Description — taken from the RAW block (line breaks intact) so
+        # paragraph and list structure can be preserved
         desc_split = re.split(
-            r"Confidential:\s*(?:Yes|No)?", block_cleaned, flags=re.IGNORECASE
+            r"Confidential:\s*(?:Yes|No)?", block, flags=re.IGNORECASE
         )
         description = ""
         if len(desc_split) > 1:
-            description = clean_text(desc_split[1])
+            description = structure_description(desc_split[1])
         # The PDF repeats the supervisor's name as a header right before the
         # NEXT project, which lands at the end of this block's description
-        # ("...aircraft panels. Aliabadi, Ferri Prof.") — strip it.
+        # ("...aircraft panels. Aliabadi, Ferri Prof.") — strip it. Name
+        # words must be Capitalized-then-lowercase so IDs like "J060863" or
+        # all-caps words like "README" before the name are never eaten.
+        name_word = r"[A-ZÀ-Ž][a-zà-ž'’]+(?:-[A-ZÀ-Ž]?[a-zà-ž'’]+)*"
         description = re.sub(
-            r"\s*[A-Z][\w'’\- ]*,\s+[\w'’\- ]+?\s+(?:Prof\.?|Dr\.?)\s*$",
+            rf"\s*{name_word}(?:\s+{name_word})*,\s+{name_word}(?:\s+{name_word})*\s+(?:Prof\.?|Dr\.?)\s*$",
             "",
             description,
         )
+
+        # Spelling and capitalization touch-ups for display
+        title = fix_typos(title).strip()
+        if title.endswith(".") and not title.endswith(".."):
+            title = title[:-1].rstrip()
+        title = title_case(title)
+        description = fix_typos(description).strip()
+        if description and description[0].islower():
+            description = description[0].upper() + description[1:]
 
         # --- SKILL & SOFTWARE MATCHING (whitelist only) ---
         # The Software field sometimes mashes tools together across line
@@ -327,7 +566,7 @@ def extract_projects_from_pdf(pdf_path):
 def generate_html(projects, output_filename):
     print(f"Generating enhanced interactive dashboard: {output_filename}...")
 
-    html_template = f"""<!DOCTYPE html>
+    html_template = rf"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -471,6 +710,15 @@ def generate_html(projects, output_filename):
 
         .description {{ font-size: 0.92rem; color: var(--text-mid); line-height: 1.6; margin-bottom: 18px; max-height: 110px; overflow: hidden; position: relative; }}
         .description.expanded {{ max-height: none; }}
+        .desc-link {{ color: var(--primary); font-weight: 600; text-decoration: none; word-break: break-all; }}
+        .desc-link:hover {{ text-decoration: underline; }}
+        .refs {{ margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 0.8rem; color: var(--text-light); line-height: 1.55; }}
+        .description p {{ margin: 0 0 10px; }}
+        .description p:last-child {{ margin-bottom: 0; }}
+        .description ul {{ margin: 0 0 10px 20px; padding: 0; }}
+        .description li {{ margin-bottom: 4px; }}
+        .description p.num-item {{ margin: 0 0 6px 12px; }}
+        .description p.ref-item {{ font-size: 0.8rem; color: var(--text-light); margin: 0 0 6px; }}
         .btn-more {{ background: none; border: none; color: var(--primary); font-size: 0.85rem; cursor: pointer; padding: 0; margin-bottom: 16px; font-weight: 600; display: inline-block; }}
         .btn-more:hover {{ text-decoration: underline; }}
 
@@ -881,6 +1129,58 @@ def generate_html(projects, output_filename):
             renderProjects();
         }}
 
+        function escapeHtml(s) {{
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }}
+
+        // Turn raw URLs into short clickable links that open in a new tab
+        function linkify(text) {{
+            return escapeHtml(text).replace(/(https?:\/\/[^\s<]+|www\.[^\s<]+)/g, m => {{
+                let url = m, trail = '';
+                // Leave sentence punctuation (and unbalanced parens) outside the link
+                while (/[.,;:!?)\]]$/.test(url)) {{
+                    if (url.endsWith(')') && (url.match(/\(/g) || []).length >= (url.match(/\)/g) || []).length) break;
+                    trail = url.slice(-1) + trail;
+                    url = url.slice(0, -1);
+                }}
+                const href = url.startsWith('www.') ? 'https://' + url : url;
+                let label = url.replace(/^https?:\/\/(www\.)?/, '');
+                if (label.length > 50) label = label.slice(0, 47) + '…';
+                return `<a class="desc-link" href="${{href}}" target="_blank" rel="noopener" title="${{href}}">${{label}}</a>${{trail}}`;
+            }});
+        }}
+
+        function formatDescription(text) {{
+            if (!text) return '<i>No detailed description available.</i>';
+
+            // Pull a trailing "References:" section into its own styled block
+            let refsHtml = '';
+            const rm = text.match(/^([\s\S]*?)\s*\bReferences?\s*:\s*([\s\S]+)$/);
+            if (rm && rm[2].length < text.length * 0.6) {{
+                text = rm[1];
+                refsHtml = linkify(rm[2]).replace(/\n/g, '<br>').replace(/\s+(?=\[\d+\])/g, '<br>');
+            }}
+
+            // Newlines from the extractor separate paragraphs and list items
+            let html = '', listOpen = false;
+            for (const line of text.split('\n')) {{
+                const li = line.match(/^•\s*(.*)$/);
+                if (li) {{
+                    if (!listOpen) {{ html += '<ul>'; listOpen = true; }}
+                    html += `<li>${{linkify(li[1])}}</li>`;
+                }} else {{
+                    if (listOpen) {{ html += '</ul>'; listOpen = false; }}
+                    const cls = /^\[\d+\]\s/.test(line) ? ' class="ref-item"'
+                        : /^(\(?\d{{1,2}}[).]|[ivx]{{1,4}}\))\s/.test(line) ? ' class="num-item"'
+                        : '';
+                    html += `<p${{cls}}>${{linkify(line)}}</p>`;
+                }}
+            }}
+            if (listOpen) html += '</ul>';
+            if (refsHtml) html += `<div class="refs"><b>References:</b><br>${{refsHtml}}</div>`;
+            return html;
+        }}
+
         function toggleDescription(btn, id) {{
             const desc = btn.previousElementSibling;
             if (expandedIds.has(id)) {{
@@ -977,7 +1277,7 @@ def generate_html(projects, output_filename):
                         </div>
                         <h3>${{p.title}}</h3>
                         <div class="supervisor">👤 ${{p.supervisor}}</div>
-                        <div class="description ${{expandedIds.has(p.id) ? 'expanded' : ''}}">${{p.description || '<i>No detailed description available.</i>'}}</div>
+                        <div class="description ${{expandedIds.has(p.id) ? 'expanded' : ''}}">${{formatDescription(p.description)}}</div>
                         ${{p.description && p.description.length > 200 ? `<button class="btn-more" onclick="toggleDescription(this, '${{p.id}}')">${{expandedIds.has(p.id) ? 'Show less ▲' : 'Read full description ▼'}}</button>` : ''}}
                     </div>
                     <div class="tags-container">
@@ -1008,9 +1308,30 @@ def generate_html(projects, output_filename):
 
 
 if __name__ == "__main__":
-    pdf_path = Path(PDF_FILENAME)
+    # PDF name comes from the command line (python build_dashboard.py my.pdf)
+    # or an interactive prompt; Enter accepts the default.
+    if len(sys.argv) > 1:
+        pdf_name = sys.argv[1]
+    else:
+        pdf_name = (
+            input(f"PDF file to use [{PDF_FILENAME}]: ")
+            .strip()
+            .strip('"')
+            .strip("﻿")  # BOM that some shells prepend when piping
+        )
+        if not pdf_name:
+            pdf_name = PDF_FILENAME
+
+    pdf_path = Path(pdf_name)
+    if pdf_path.suffix.lower() != ".pdf" and not pdf_path.exists():
+        pdf_path = pdf_path.with_suffix(".pdf")
     if not pdf_path.exists():
-        print(f"Error: Could not find '{PDF_FILENAME}' in the current folder.")
+        print(f"Error: Could not find '{pdf_name}' in the current folder.")
+        available = sorted(Path(".").glob("*.pdf"))
+        if available:
+            print("PDF files found here:")
+            for f in available:
+                print(f"  - {f.name}")
         sys.exit(1)
 
     extracted_projects = extract_projects_from_pdf(pdf_path)
